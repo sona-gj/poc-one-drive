@@ -2,30 +2,72 @@ import { useEffect, useState, useRef } from 'react';
 import './App.css';
 import axios from 'axios';
 
+// Recursive sidebar for folders (supports future nested structure)
+function SidebarFolders({ folders, currentFolderId, onSelect, section }) {
+  if (!folders.length) return null;
+  return (
+    <ul style={{ listStyle: "none", paddingLeft: 0 }}>
+      {folders.map(folder => (
+        <li key={folder.id || folder.name}>
+          <div
+            style={{
+              marginLeft: 16,
+              marginBottom: 8,
+              color: currentFolderId === folder.id && section === folder.section ? '#2563eb' : '#6b7280',
+              fontWeight: currentFolderId === folder.id && section === folder.section ? 700 : 400,
+              cursor: 'pointer',
+              borderLeft: currentFolderId === folder.id && section === folder.section ? '2px solid #2563eb' : '2px solid transparent',
+              paddingLeft: 8,
+              background: currentFolderId === folder.id && section === folder.section ? '#eef3fd' : 'transparent'
+            }}
+            onClick={() => onSelect(folder, section)}
+          >
+            📁 {folder.name}
+          </div>
+          {folder.children && folder.children.length > 0 && (
+            <SidebarFolders
+              key={folder.id + "_children"}
+              folders={folder.children}
+              currentFolderId={currentFolderId}
+              onSelect={onSelect}
+              section={section}
+            />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+
 function App() {
   const api = "http://localhost:5001";
   const [files, setFiles] = useState([]);
-  const [sharedFolders, setSharedFolders] = useState([]);
   const fileInputRef = useRef();
+  const folderInputRef = useRef();
+
+  // Navigation state
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [currentFolderName, setCurrentFolderName] = useState('My File');
+  const [currentSection, setCurrentSection] = useState('root');
+  const [rootFolders, setRootFolders] = useState([]);
 
   // Fetch files & shared folders
-  const fetchFilesAndFolders = async (sessionId) => {
+  const fetchFilesAndFolders = async (sessionId, folderId = null, folderName = 'My File', section = 'root') => {
     try {
-      // Files & folders
-      const filesRes = await axios.get(`${api}/api/files`, {
+      // Fetch files for given folder (or root if null)
+      const url = folderId
+        ? `${api}/api/files?id=${folderId}`
+        : `${api}/api/files`;
+      const filesRes = await axios.get(url, {
         headers: { Authorization: `Bearer ${sessionId}` }
       });
       setFiles(filesRes.data.value || filesRes.data);
-
-      // Shared folders
-      const sharedRes = await axios.get(`${api}/api/shared`, {
-        headers: { Authorization: `Bearer ${sessionId}` }
-      });
-      const shared = (sharedRes.data.value || sharedRes.data || []).filter(item => item.folder);
-      setSharedFolders(shared);
+      setCurrentFolderId(folderId);
+      setCurrentFolderName(folderName);
+      setCurrentSection(section);
     } catch (err) {
       setFiles([]);
-      setSharedFolders([]);
     }
   };
 
@@ -35,7 +77,7 @@ function App() {
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
       window.history.replaceState({}, document.title, "/");
-      fetchFilesAndFolders(sessionId);
+      fetchFilesAndFolders(sessionId, null, 'My File', 'root');
     }
   }, []);
 
@@ -58,13 +100,11 @@ function App() {
         }
       });
       alert('File uploaded!');
-      fetchFilesAndFolders(sessionId);
+      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
     } catch (err) {
       alert('Upload failed: ' + (err.response?.data?.error || err.message));
     }
   };
-
-  const folderInputRef = useRef();
 
   const handleFolderUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -82,22 +122,18 @@ function App() {
           'Content-Type': 'application/json',
         }
       });
-      parentId = res.data.id; // The ID of the newly created folder
+      parentId = res.data.id;
     } catch (err) {
       alert('Failed to create folder in OneDrive');
       return;
     }
 
-    // 2. Upload all files, keeping their folder structure
+    // 2. Upload all files
     for (const file of files) {
-      // Remove the root folder name from the path to get the relative path inside the new OneDrive folder
       const relativePath = file.webkitRelativePath.replace(rootFolderName + '/', '');
-      // For now, let's upload all files directly to the root folder.
-      // To preserve folder structure, you'd need to create subfolders as needed (advanced).
       const formData = new FormData();
       formData.append('file', file);
       formData.append('parentId', parentId);
-      // Optionally add the path to backend for advanced logic
       formData.append('relativePath', relativePath);
 
       try {
@@ -113,13 +149,14 @@ function App() {
     }
 
     alert('Folder and files uploaded!');
-    fetchFilesAndFolders(sessionId); // Refresh
+    fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
   };
-
 
   // Split files into folders and documents
   const folders = files.filter(item => item.folder);
   const documents = files.filter(item => !item.folder);
+  // Shared folders for sidebar: those in current folder with a 'shared' property
+  const sharedFolders = folders.filter(folder => folder.shared).map(f => ({ ...f, section: 'shared' }));
 
   const handleShare = async (item) => {
     const emails = prompt('Enter emails to share with (comma-separated):');
@@ -140,7 +177,7 @@ function App() {
         }
       });
       alert('Sharing updated!');
-      fetchFilesAndFolders(sessionId); // Refresh list
+      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
     } catch (err) {
       alert('Share failed: ' + (err.response?.data?.error || err.message));
     }
@@ -153,23 +190,42 @@ function App() {
         <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 32 }}>Katherine Martinez</div>
         <nav>
           <div style={{ marginBottom: 24 }}>
-            <div style={{ color: '#2563eb', fontWeight: 600, marginBottom: 8 }}>● Recent</div>
-            <div style={{ color: '#6b7280', marginBottom: 8 }}>☆ Favorites</div>
-            <div style={{ color: '#6b7280', marginBottom: 8 }}>🗂 My File</div>
-            <div style={{ color: '#6b7280', marginBottom: 24 }}>🗑 Recycle bin</div>
+            <div
+              style={{
+                color: currentFolderId === null && currentSection === 'root' ? '#2563eb' : '#6b7280',
+                fontWeight: currentFolderId === null && currentSection === 'root' ? 700 : 400,
+                marginBottom: 8,
+                cursor: 'pointer'
+              }}
+              onClick={() => {
+                const sessionId = localStorage.getItem('sessionId');
+                fetchFilesAndFolders(sessionId, null, 'My File', 'root');
+              }}
+            >
+              ● Recent
+            </div>
+            <div style={{ color: '#6b7280', marginBottom: 8, cursor: 'pointer' }}>☆ Favorites</div>
+            <div style={{ color: '#6b7280', marginBottom: 8, cursor: 'pointer' }}>🗂 My File</div>
+            <div style={{ color: '#6b7280', marginBottom: 24, cursor: 'pointer' }}>🗑 Recycle bin</div>
           </div>
+          {/* Shared Folders from current folder */}
           {sharedFolders.length > 0 && (
             <>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>Shared Folders</div>
-              {sharedFolders.map(folder => (
-                <div key={folder.id} style={{ color: '#6b7280', marginLeft: 16, marginBottom: 8 }}>
-                  📁 {folder.name}
-                </div>
-              ))}
+              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared Folders</div>
+              <SidebarFolders
+                folders={sharedFolders}
+                currentFolderId={currentFolderId}
+                onSelect={(folder) => {
+                  const sessionId = localStorage.getItem('sessionId');
+                  fetchFilesAndFolders(sessionId, folder.id, folder.name, 'shared');
+                }}
+                section="shared"
+              />
             </>
           )}
         </nav>
       </aside>
+
       {/* Main Content */}
       <main style={{ flex: 1, padding: '2.5rem 2.5rem 2.5rem 2rem' }}>
         {/* Top Bar */}
@@ -209,9 +265,12 @@ function App() {
           <button style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '0 16px' }}>Date</button>
           <button style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '0 16px' }}>Document Type</button>
         </div>
-        {/* Recent Documents */}
+
+        {/* Main Table */}
         <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', marginBottom: 32, padding: 24 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Documents</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>{currentFolderName}</h2>
+          {/* Documents */}
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Recent Documents</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
@@ -242,23 +301,30 @@ function App() {
               ))}
             </tbody>
           </table>
-        </section>
 
-        {/* Recent Folders */}
-        <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', padding: 24 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Folders</h2>
+          {/* Folders */}
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10, marginTop: 32 }}>Recent Folders</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
                 <th style={{ padding: '8px 0' }}>Folder Name</th>
                 <th>Sharing</th>
                 <th>Web Link</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {folders.map(folder => (
                 <tr key={folder.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '8px 0' }}>{folder.name}</td>
+                  <td
+                    style={{ padding: '8px 0', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}
+                    onClick={() => {
+                      const sessionId = localStorage.getItem('sessionId');
+                      fetchFilesAndFolders(sessionId, folder.id, folder.name, currentSection);
+                    }}
+                  >
+                    {folder.name}
+                  </td>
                   <td>
                     {folder.shared
                       ? (folder.shared.scope === 'organization'
@@ -279,7 +345,6 @@ function App() {
             </tbody>
           </table>
         </section>
-
       </main>
     </div>
   );

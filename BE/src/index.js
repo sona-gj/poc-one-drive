@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 dotenv.config();
- 
+
 import express, { json } from "express";
 import axios from "axios";
 import cors from "cors";
@@ -21,7 +21,7 @@ const OAUTH_SCOPES = "Files.ReadWrite.All offline_access";
 // In-memory session store (sessionId -> token data)
 const sessions = {};
 // Middleware to protect API routes
- 
+
 function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
@@ -79,7 +79,7 @@ async function graphRequest(sessionId, method, url, data) {
     const res = await axios({
       method: method,
       url: url,
- 
+
       headers: { Authorization: `Bearer ${session.accessToken}` },
       data: data,
     });
@@ -131,7 +131,7 @@ app.get("/auth/callback", async (req, res) => {
     return res.status(500).send("Authentication error: " + error);
   }
   if (!code) return res.status(400).send("No auth code received");
- 
+
   try {
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
@@ -141,12 +141,12 @@ app.get("/auth/callback", async (req, res) => {
       redirect_uri: REDIRECT_URI,
       scope: OAUTH_SCOPES,
     });
- 
+
     // ✅ use axios.post, not post()
     const tokenRes = await axios.post(OAUTH_TOKEN_URL, params.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
- 
+
     const data = tokenRes.data;                        // access & refresh tokens
     const sessionId = uuidv4();
     sessions[sessionId] = {
@@ -155,7 +155,7 @@ app.get("/auth/callback", async (req, res) => {
       expiresAt: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
     };
     console.log(`New session ${sessionId} (expires in ${data.expires_in}s)`);
- 
+
     // send sessionId back to front-end or Postman
     res.redirect(`http://localhost:5173?sessionId=${sessionId}`);
     // or, for API-only testing:
@@ -172,18 +172,16 @@ app.get("/auth/callback", async (req, res) => {
 app.get("/api/files", requireAuth, async (req, res) => {
   let apiUrl;
   if (req.query.id) {
-    apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/$
-{req.query.id}/children`;
+    apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${req.query.id}/children`;
   } else if (req.query.path) {
     const path = req.query.path;
-    apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/$
-{encodeURIComponent(path)}:/children`;
+    apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(path)}:/children`;
   } else {
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root/children`;
   }
   try {
     7;
- 
+
     const result = await graphRequest(req.sessionId, "GET", apiUrl);
     res.json(result);
   } catch (err) {
@@ -192,8 +190,7 @@ app.get("/api/files", requireAuth, async (req, res) => {
 });
 // List files shared *with* the logged-in user
 app.get("/api/shared", requireAuth, async (req, res) => {
-  const apiUrl = `https://graph.microsoft.com/v1.0/me/drive/sharedWithMe?
-allowexternal=true`;
+  const apiUrl = `https://graph.microsoft.com/v1.0/me/drive/sharedWithMe?allowexternal=true`;
   try {
     const result = await graphRequest(req.sessionId, "GET", apiUrl);
     res.json(result);
@@ -229,10 +226,10 @@ app.put("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
- 
+
   const fileName = req.file.originalname;
   let apiUrl;
- 
+
   if (req.body.parentId) {
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${req.body.parentId}:/${encodeURIComponent(fileName)}:/content`;
   } else if (req.body.path) {
@@ -245,7 +242,7 @@ app.put("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
   } else {
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(fileName)}:/content`;
   }
- 
+
   try {
     const session = sessions[req.sessionId];
     const response = await axios.put(apiUrl, req.file.buffer, {
@@ -254,7 +251,7 @@ app.put("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
         "Content-Type": req.file.mimetype || "application/octet-stream",
       },
     });
- 
+
     // Return actual response
     res.status(201).json(response.data);
   } catch (err) {
@@ -326,16 +323,16 @@ invite`;
     res.status(err.status || 500).json(err.data || { error: "Sharefailed" });
   }
 });
- 
+
 app.post("/api/invite", requireAuth, async (req, res) => {
   const { itemId, emails, role = "view", message = "" } = req.body;
- 
+
   if (!itemId || !Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({ error: "itemId and emails[] are required" });
   }
- 
+
   const apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/invite`;
- 
+
   const body = {
     recipients: emails.map(email => ({ email })),
     requireSignIn: true,
@@ -343,7 +340,7 @@ app.post("/api/invite", requireAuth, async (req, res) => {
     roles: [role === "edit" ? "write" : "read"],
     message,
   };
- 
+
   try {
     const result = await graphRequest(req.sessionId, "POST", apiUrl, body);
     res.status(200).json(result);
@@ -351,7 +348,7 @@ app.post("/api/invite", requireAuth, async (req, res) => {
     res.status(err.status || 500).json(err.data || { error: "Invite failed" });
   }
 });
- 
+
 // Start server
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
