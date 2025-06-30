@@ -64,24 +64,58 @@ function App() {
     }
   };
 
-  // --- Create Folder ---
-  const handleCreateFolder = async () => {
-    const folderName = prompt('Enter new folder name:');
-    if (!folderName) return;
-    const sessionId = localStorage.getItem('sessionId');
+  const folderInputRef = useRef();
+
+const handleFolderUpload = async (e) => {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+
+  const sessionId = localStorage.getItem('sessionId');
+  const rootFolderName = files[0].webkitRelativePath.split('/')[0];
+
+  // 1. Create the root folder in OneDrive
+  let parentId = null;
+  try {
+    const res = await axios.post(`${api}/api/create-folder`, { name: rootFolderName }, {
+      headers: {
+        Authorization: `Bearer ${sessionId}`,
+        'Content-Type': 'application/json',
+      }
+    });
+    parentId = res.data.id; // The ID of the newly created folder
+  } catch (err) {
+    alert('Failed to create folder in OneDrive');
+    return;
+  }
+
+  // 2. Upload all files, keeping their folder structure
+  for (const file of files) {
+    // Remove the root folder name from the path to get the relative path inside the new OneDrive folder
+    const relativePath = file.webkitRelativePath.replace(rootFolderName + '/', '');
+    // For now, let's upload all files directly to the root folder.
+    // To preserve folder structure, you'd need to create subfolders as needed (advanced).
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('parentId', parentId);
+    // Optionally add the path to backend for advanced logic
+    formData.append('relativePath', relativePath);
+
     try {
-      await axios.post(`${api}/api/create-folder`, { name: folderName }, {
+      await axios.put(`${api}/api/upload`, formData, {
         headers: {
           Authorization: `Bearer ${sessionId}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'multipart/form-data',
         }
       });
-      alert('Folder created!');
-      fetchFilesAndFolders(sessionId);
     } catch (err) {
-      alert('Create folder failed: ' + (err.response?.data?.error || err.message));
+      alert('Failed to upload file: ' + file.name);
     }
-  };
+  }
+
+  alert('Folder and files uploaded!');
+  fetchFilesAndFolders(sessionId); // Refresh
+};
+
 
   // Split files into folders and documents
   const folders = files.filter(item => item.folder);
@@ -115,12 +149,21 @@ function App() {
       <main style={{ flex: 1, padding: '2.5rem 2.5rem 2.5rem 2rem' }}>
         {/* Top Bar */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 32 }}>
-          <button
-            style={{ marginRight: 12, background: '#10b981', color: '#fff', fontWeight: 600 }}
-            onClick={handleCreateFolder}
-          >
-            + New Folder
-          </button>
+        <input
+  type="file"
+  ref={folderInputRef}
+  style={{ display: 'none' }}
+  onChange={handleFolderUpload}
+  webkitdirectory="true"
+  directory=""
+/>
+<button
+  style={{ marginRight: 12, background: '#10b981', color: '#fff', fontWeight: 600 }}
+  onClick={() => folderInputRef.current.click()}
+>
+  + Upload Folder
+</button>
+
           <input
             type="file"
             ref={fileInputRef}
@@ -142,47 +185,73 @@ function App() {
           <button style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '0 16px' }}>Document Type</button>
         </div>
         {/* Recent Documents */}
-        <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', marginBottom: 32, padding: 24 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Documents</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
-                <th style={{ padding: '8px 0' }}>Document Name</th>
-                <th>Type</th>
-                <th>Web Link</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map(doc => (
-                <tr key={doc.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '8px 0' }}>{doc.name}</td>
-                  <td>{doc.file ? doc.file.mimeType : 'Unknown'}</td>
-                  <td>{doc.webUrl ? <a href={doc.webUrl} target="_blank" rel="noopener noreferrer">Open</a> : '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-        {/* Recent Folders */}
-        <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', padding: 24 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Folders</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
-                <th style={{ padding: '8px 0' }}>Folder Name</th>
-                <th>Web Link</th>
-              </tr>
-            </thead>
-            <tbody>
-              {folders.map(folder => (
-                <tr key={folder.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '8px 0' }}>{folder.name}</td>
-                  <td>{folder.webUrl ? <a href={folder.webUrl} target="_blank" rel="noopener noreferrer">Open</a> : '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+<section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', marginBottom: 32, padding: 24 }}>
+  <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Documents</h2>
+  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <thead>
+      <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
+        <th style={{ padding: '8px 0' }}>Document Name</th>
+        <th>Type</th>
+        <th>Sharing</th>
+        <th>Web Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {documents.map(doc => (
+        <tr key={doc.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+          <td style={{ padding: '8px 0' }}>{doc.name}</td>
+          <td>{doc.file ? doc.file.mimeType : 'Unknown'}</td>
+          <td>
+            {doc.shared
+              ? (doc.shared.scope === 'organization'
+                  ? 'Organization'
+                  : doc.shared.scope === 'users'
+                    ? 'Shared'
+                    : doc.shared.scope === 'anonymous'
+                      ? 'Anyone with link'
+                      : doc.shared.scope)
+              : 'Private'}
+          </td>
+          <td>{doc.webUrl ? <a href={doc.webUrl} target="_blank" rel="noopener noreferrer">Open</a> : '-'}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</section>
+
+{/* Recent Folders */}
+<section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', padding: 24 }}>
+  <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Recent Folders</h2>
+  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <thead>
+      <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
+        <th style={{ padding: '8px 0' }}>Folder Name</th>
+        <th>Sharing</th>
+        <th>Web Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {folders.map(folder => (
+        <tr key={folder.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+          <td style={{ padding: '8px 0' }}>{folder.name}</td>
+          <td>
+            {folder.shared
+              ? (folder.shared.scope === 'organization'
+                  ? 'Organization'
+                  : folder.shared.scope === 'users'
+                    ? 'Shared'
+                    : folder.shared.scope === 'anonymous'
+                      ? 'Anyone with link'
+                      : folder.shared.scope)
+              : 'Private'}
+          </td>
+          <td>{folder.webUrl ? <a href={folder.webUrl} target="_blank" rel="noopener noreferrer">Open</a> : '-'}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</section>
+
       </main>
     </div>
   );
