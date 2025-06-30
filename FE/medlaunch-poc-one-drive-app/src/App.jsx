@@ -3,7 +3,7 @@ import './App.css';
 import axios from 'axios';
 
 // Recursive sidebar for folders (supports future nested structure)
-function SidebarFolders({ folders, currentFolderId, onSelect, section }) {
+function SidebarFolders({ folders, currentFolderId, currentSection, onSelect, section }) {
   if (!folders.length) return null;
   return (
     <ul style={{ listStyle: "none", paddingLeft: 0 }}>
@@ -13,12 +13,12 @@ function SidebarFolders({ folders, currentFolderId, onSelect, section }) {
             style={{
               marginLeft: 16,
               marginBottom: 8,
-              color: currentFolderId === folder.id && section === folder.section ? '#2563eb' : '#6b7280',
-              fontWeight: currentFolderId === folder.id && section === folder.section ? 700 : 400,
+              color: currentFolderId === folder.id && currentSection === section ? '#2563eb' : '#6b7280',
+              fontWeight: currentFolderId === folder.id && currentSection === section ? 700 : 400,
               cursor: 'pointer',
-              borderLeft: currentFolderId === folder.id && section === folder.section ? '2px solid #2563eb' : '2px solid transparent',
+              borderLeft: currentFolderId === folder.id && currentSection === section ? '2px solid #2563eb' : '2px solid transparent',
               paddingLeft: 8,
-              background: currentFolderId === folder.id && section === folder.section ? '#eef3fd' : 'transparent'
+              background: currentFolderId === folder.id && currentSection === section ? '#eef3fd' : 'transparent'
             }}
             onClick={() => onSelect(folder, section)}
           >
@@ -29,6 +29,7 @@ function SidebarFolders({ folders, currentFolderId, onSelect, section }) {
               key={folder.id + "_children"}
               folders={folder.children}
               currentFolderId={currentFolderId}
+              currentSection={currentSection}
               onSelect={onSelect}
               section={section}
             />
@@ -51,10 +52,25 @@ function App() {
   const [currentFolderName, setCurrentFolderName] = useState('My File');
   const [currentSection, setCurrentSection] = useState('root');
   const [rootFolders, setRootFolders] = useState([]);
+  const [sharedWithMeFolders, setSharedWithMeFolders] = useState([]);
+  const [currentFolderMeta, setCurrentFolderMeta] = useState(null);
+  const [allSharedByYou, setAllSharedByYou] = useState([]);
+  const [allSharedWithMe, setAllSharedWithMe] = useState([]);
 
   // Fetch files & shared folders
   const fetchFilesAndFolders = async (sessionId, folderId = null, folderName = 'My File', section = 'root') => {
     try {
+      let folderMeta = null;
+      if (folderId) {
+        // Fetch folder metadata
+        const metaRes = await axios.get(`${api}/api/files?id=${folderId}&meta=1`, {
+          headers: { Authorization: `Bearer ${sessionId}` }
+        });
+        folderMeta = metaRes.data;
+        setCurrentFolderMeta(folderMeta);
+      } else {
+        setCurrentFolderMeta(null);
+      }
       // Fetch files for given folder (or root if null)
       const url = folderId
         ? `${api}/api/files?id=${folderId}`
@@ -68,6 +84,7 @@ function App() {
       setCurrentSection(section);
     } catch (err) {
       setFiles([]);
+      setCurrentFolderMeta(null);
     }
   };
 
@@ -77,7 +94,25 @@ function App() {
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
       window.history.replaceState({}, document.title, "/");
-      fetchFilesAndFolders(sessionId, null, 'My File', 'root');
+      // Fetch all shared folders for sidebar
+      (async () => {
+        // Fetch root files for 'Shared by You'
+        const rootRes = await axios.get(`${api}/api/files`, {
+          headers: { Authorization: `Bearer ${sessionId}` }
+        });
+        const rootFiles = rootRes.data.value || rootRes.data;
+        setAllSharedByYou(rootFiles.filter(f => f.folder && f.shared).map(f => ({ ...f, section: 'shared' })));
+        // Fetch all 'Shared with You'
+        const sharedRes = await axios.get(`${api}/api/shared`, {
+          headers: { Authorization: `Bearer ${sessionId}` }
+        });
+        const sharedWithMe = (sharedRes.data.value || sharedRes.data || [])
+          .filter(item => item.folder)
+          .map(f => ({ ...f, section: 'sharedWithMe' }));
+        setAllSharedWithMe(sharedWithMe);
+        // Initial main content
+        fetchFilesAndFolders(sessionId, null, 'My File', 'root');
+      })();
     }
   }, []);
 
@@ -156,7 +191,19 @@ function App() {
   const folders = files.filter(item => item.folder);
   const documents = files.filter(item => !item.folder);
   // Shared folders for sidebar: those in current folder with a 'shared' property
-  const sharedFolders = folders.filter(folder => folder.shared).map(f => ({ ...f, section: 'shared' }));
+  let sharedFolders = folders.filter(folder => folder.shared).map(f => ({ ...f, section: 'shared' }));
+  // If the current folder is a shared folder and not already in the list, add it
+  if (
+    currentSection === 'shared' &&
+    currentFolderMeta &&
+    currentFolderMeta.shared &&
+    !sharedFolders.some(f => f.id === currentFolderMeta.id)
+  ) {
+    sharedFolders = [
+      { id: currentFolderMeta.id, name: currentFolderMeta.name, section: 'shared' },
+      ...sharedFolders
+    ];
+  }
 
   const handleShare = async (item) => {
     const emails = prompt('Enter emails to share with (comma-separated):');
@@ -208,18 +255,37 @@ function App() {
             <div style={{ color: '#6b7280', marginBottom: 8, cursor: 'pointer' }}>🗂 My File</div>
             <div style={{ color: '#6b7280', marginBottom: 24, cursor: 'pointer' }}>🗑 Recycle bin</div>
           </div>
-          {/* Shared Folders from current folder */}
-          {sharedFolders.length > 0 && (
+          {/* Shared by You */}
+          {allSharedByYou.length > 0 && (
             <>
-              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared Folders</div>
+              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared by You</div>
               <SidebarFolders
-                folders={sharedFolders}
+                folders={allSharedByYou}
                 currentFolderId={currentFolderId}
+                currentSection={currentSection}
                 onSelect={(folder) => {
                   const sessionId = localStorage.getItem('sessionId');
+                  setCurrentSection('shared');
                   fetchFilesAndFolders(sessionId, folder.id, folder.name, 'shared');
                 }}
                 section="shared"
+              />
+            </>
+          )}
+          {/* Shared with You */}
+          {allSharedWithMe.length > 0 && (
+            <>
+              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared with You</div>
+              <SidebarFolders
+                folders={allSharedWithMe}
+                currentFolderId={currentFolderId}
+                currentSection={currentSection}
+                onSelect={(folder) => {
+                  const sessionId = localStorage.getItem('sessionId');
+                  setCurrentSection('sharedWithMe');
+                  fetchFilesAndFolders(sessionId, folder.id, folder.name, 'sharedWithMe');
+                }}
+                section="sharedWithMe"
               />
             </>
           )}
