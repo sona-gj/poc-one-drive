@@ -2,45 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import './App.css';
 import axios from 'axios';
 
-// Recursive sidebar for folders (supports future nested structure)
-function SidebarFolders({ folders, currentFolderId, currentSection, onSelect, section }) {
-  if (!folders.length) return null;
-  return (
-    <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-      {folders.map(folder => (
-        <li key={folder.id || folder.name}>
-          <div
-            style={{
-              marginLeft: 16,
-              marginBottom: 8,
-              color: currentFolderId === folder.id && currentSection === section ? '#2563eb' : '#6b7280',
-              fontWeight: currentFolderId === folder.id && currentSection === section ? 700 : 400,
-              cursor: 'pointer',
-              borderLeft: currentFolderId === folder.id && currentSection === section ? '2px solid #2563eb' : '2px solid transparent',
-              paddingLeft: 8,
-              background: currentFolderId === folder.id && currentSection === section ? '#eef3fd' : 'transparent'
-            }}
-            onClick={() => onSelect(folder, section)}
-          >
-            📁 {folder.name}
-          </div>
-          {folder.children && folder.children.length > 0 && (
-            <SidebarFolders
-              key={folder.id + "_children"}
-              folders={folder.children}
-              currentFolderId={currentFolderId}
-              currentSection={currentSection}
-              onSelect={onSelect}
-              section={section}
-            />
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-
 function App() {
   const api = "http://localhost:5001";
   const [files, setFiles] = useState([]);
@@ -51,27 +12,13 @@ function App() {
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentFolderName, setCurrentFolderName] = useState('My File');
   const [currentSection, setCurrentSection] = useState('root');
-  const [rootFolders, setRootFolders] = useState([]);
-  const [sharedWithMeFolders, setSharedWithMeFolders] = useState([]);
-  const [currentFolderMeta, setCurrentFolderMeta] = useState(null);
   const [allSharedByYou, setAllSharedByYou] = useState([]);
   const [allSharedWithMe, setAllSharedWithMe] = useState([]);
+  const [currentRemoteDriveId, setCurrentRemoteDriveId] = useState(null);
 
-  // Fetch files & shared folders
+  // Fetch files & folders for current context
   const fetchFilesAndFolders = async (sessionId, folderId = null, folderName = 'My File', section = 'root', remoteDriveId = null, remoteItemId = null) => {
     try {
-      let folderMeta = null;
-      if (folderId && !remoteDriveId) {
-        // Fetch folder metadata for local folders
-        const metaRes = await axios.get(`${api}/api/files?id=${folderId}&meta=1`, {
-          headers: { Authorization: `Bearer ${sessionId}` }
-        });
-        folderMeta = metaRes.data;
-        setCurrentFolderMeta(folderMeta);
-      } else {
-        setCurrentFolderMeta(null);
-      }
-      // Fetch files for given folder (or root if null)
       let url;
       if (remoteDriveId && remoteItemId) {
         url = `${api}/api/files?remoteDriveId=${remoteDriveId}&remoteItemId=${remoteItemId}`;
@@ -87,9 +34,15 @@ function App() {
       setCurrentFolderId(folderId);
       setCurrentFolderName(folderName);
       setCurrentSection(section);
+
+      // Only update currentRemoteDriveId for top-level shared-with-me nav
+      if (remoteDriveId && remoteItemId) {
+        setCurrentRemoteDriveId(remoteDriveId);
+      } else if (section !== 'sharedWithMe') {
+        setCurrentRemoteDriveId(null);
+      }
     } catch (err) {
       setFiles([]);
-      setCurrentFolderMeta(null);
     }
   };
 
@@ -99,23 +52,23 @@ function App() {
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
       window.history.replaceState({}, document.title, "/");
-      // Fetch all shared folders for sidebar
       (async () => {
-        // Fetch root files for 'Shared by You'
+        // Shared by you
         const rootRes = await axios.get(`${api}/api/files`, {
           headers: { Authorization: `Bearer ${sessionId}` }
         });
         const rootFiles = rootRes.data.value || rootRes.data;
         setAllSharedByYou(rootFiles.filter(f => f.folder && f.shared).map(f => ({ ...f, section: 'shared' })));
-        // Fetch all 'Shared with You'
+
+        // Shared with you
         const sharedRes = await axios.get(`${api}/api/shared`, {
           headers: { Authorization: `Bearer ${sessionId}` }
         });
-        console.log('Shared with me response:', sharedRes.data);
         const sharedWithMe = (sharedRes.data.value || sharedRes.data || [])
           .map(f => ({ ...f, section: 'sharedWithMe' }));
         setAllSharedWithMe(sharedWithMe);
-        // Initial main content
+
+        // Root files
         fetchFilesAndFolders(sessionId, null, 'My File', 'root');
       })();
     }
@@ -125,7 +78,6 @@ function App() {
     window.location.href = `${api}/auth/login`;
   };
 
-  // --- Upload File ---
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -140,7 +92,7 @@ function App() {
         }
       });
       alert('File uploaded!');
-      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
+      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection, currentRemoteDriveId, currentFolderId);
     } catch (err) {
       alert('Upload failed: ' + (err.response?.data?.error || err.message));
     }
@@ -149,11 +101,10 @@ function App() {
   const handleFolderUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-
     const sessionId = localStorage.getItem('sessionId');
     const rootFolderName = files[0].webkitRelativePath.split('/')[0];
 
-    // 1. Create the root folder in OneDrive
+    // Create folder
     let parentId = null;
     try {
       const res = await axios.post(`${api}/api/create-folder`, { name: rootFolderName }, {
@@ -167,15 +118,13 @@ function App() {
       alert('Failed to create folder in OneDrive');
       return;
     }
-
-    // 2. Upload all files
+    // Upload all files
     for (const file of files) {
       const relativePath = file.webkitRelativePath.replace(rootFolderName + '/', '');
       const formData = new FormData();
       formData.append('file', file);
       formData.append('parentId', parentId);
       formData.append('relativePath', relativePath);
-
       try {
         await axios.put(`${api}/api/upload`, formData, {
           headers: {
@@ -187,28 +136,12 @@ function App() {
         alert('Failed to upload file: ' + file.name);
       }
     }
-
     alert('Folder and files uploaded!');
-    fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
+    fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection, currentRemoteDriveId, currentFolderId);
   };
 
-  // Split files into folders and documents
   const folders = files.filter(item => item.folder);
   const documents = files.filter(item => !item.folder);
-  // Shared folders for sidebar: those in current folder with a 'shared' property
-  let sharedFolders = folders.filter(folder => folder.shared).map(f => ({ ...f, section: 'shared' }));
-  // If the current folder is a shared folder and not already in the list, add it
-  if (
-    currentSection === 'shared' &&
-    currentFolderMeta &&
-    currentFolderMeta.shared &&
-    !sharedFolders.some(f => f.id === currentFolderMeta.id)
-  ) {
-    sharedFolders = [
-      { id: currentFolderMeta.id, name: currentFolderMeta.name, section: 'shared' },
-      ...sharedFolders
-    ];
-  }
 
   const handleShare = async (item) => {
     const emails = prompt('Enter emails to share with (comma-separated):');
@@ -229,11 +162,93 @@ function App() {
         }
       });
       alert('Sharing updated!');
-      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection);
+      fetchFilesAndFolders(sessionId, currentFolderId, currentFolderName, currentSection, currentRemoteDriveId, currentFolderId);
     } catch (err) {
       alert('Share failed: ' + (err.response?.data?.error || err.message));
     }
   };
+
+  // Corrected: handles shared-with-me subfolder nav with persistent driveId
+  const handleFolderClick = (folder) => {
+    const sessionId = localStorage.getItem('sessionId');
+    // --- Shared with me root nav ---
+    if (folder.remoteItem && folder.remoteItem.parentReference && folder.remoteItem.id) {
+      fetchFilesAndFolders(
+        sessionId,
+        folder.id,
+        folder.name,
+        'sharedWithMe',
+        folder.remoteItem.parentReference.driveId,
+        folder.remoteItem.id
+      );
+      setCurrentRemoteDriveId(folder.remoteItem.parentReference.driveId);
+    }
+    // --- Shared with me, subfolder nav ---
+    else if (currentSection === 'sharedWithMe' && currentRemoteDriveId) {
+      fetchFilesAndFolders(
+        sessionId,
+        folder.id,
+        folder.name,
+        'sharedWithMe',
+        currentRemoteDriveId,
+        folder.id
+      );
+    }
+    // --- Local folder nav ---
+    else {
+      fetchFilesAndFolders(sessionId, folder.id, folder.name, currentSection);
+    }
+  };
+
+  // Sidebar: helper for unique key
+  const renderSidebarFolders = (folders, section) => (
+    <ul style={{ listStyle: "none", paddingLeft: 0 }}>
+      {folders.map(folder => (
+        <li key={folder.id || folder.name}>
+          <div
+            style={{
+              marginLeft: 16,
+              marginBottom: 8,
+              color: currentFolderId === folder.id && currentSection === section ? '#2563eb' : '#6b7280',
+              fontWeight: currentFolderId === folder.id && currentSection === section ? 700 : 400,
+              cursor: 'pointer',
+              borderLeft: currentFolderId === folder.id && currentSection === section ? '2px solid #2563eb' : '2px solid transparent',
+              paddingLeft: 8,
+              background: currentFolderId === folder.id && currentSection === section ? '#eef3fd' : 'transparent'
+            }}
+            onClick={() => {
+              if (section === "sharedWithMe") {
+                if (folder.remoteItem && folder.remoteItem.parentReference && folder.remoteItem.id) {
+                  setCurrentRemoteDriveId(folder.remoteItem.parentReference.driveId);
+                  fetchFilesAndFolders(
+                    localStorage.getItem('sessionId'),
+                    folder.id,
+                    folder.name,
+                    'sharedWithMe',
+                    folder.remoteItem.parentReference.driveId,
+                    folder.remoteItem.id
+                  );
+                } else if (currentRemoteDriveId) {
+                  fetchFilesAndFolders(
+                    localStorage.getItem('sessionId'),
+                    folder.id,
+                    folder.name,
+                    'sharedWithMe',
+                    currentRemoteDriveId,
+                    folder.id
+                  );
+                }
+              } else {
+                fetchFilesAndFolders(localStorage.getItem('sessionId'), folder.id, folder.name, section);
+              }
+            }}
+          >
+            📁 {folder.name}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="app-container" style={{ display: 'flex', minHeight: '100vh', background: '#f7f8fa' }}>
@@ -260,28 +275,15 @@ function App() {
             <div style={{ color: '#6b7280', marginBottom: 8, cursor: 'pointer' }}>🗂 My File</div>
             <div style={{ color: '#6b7280', marginBottom: 24, cursor: 'pointer' }}>🗑 Recycle bin</div>
           </div>
-          {/* Shared by You */}
           {allSharedByYou.length > 0 && (
             <>
               <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared by You</div>
-              <SidebarFolders
-                folders={allSharedByYou}
-                currentFolderId={currentFolderId}
-                currentSection={currentSection}
-                onSelect={(folder) => {
-                  const sessionId = localStorage.getItem('sessionId');
-                  setCurrentSection('shared');
-                  fetchFilesAndFolders(sessionId, folder.id, folder.name, 'shared');
-                }}
-                section="shared"
-              />
+              {renderSidebarFolders(allSharedByYou, 'shared')}
             </>
           )}
-          {/* Shared with You */}
           {allSharedWithMe.length > 0 && (
             <>
               <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared with You</div>
-              {/* All shared items tile */}
               <div
                 style={{
                   marginLeft: 16,
@@ -303,48 +305,11 @@ function App() {
               >
                 📋 All
               </div>
-              {/* Only folders */}
-              <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-                {allSharedWithMe.filter(item => item.folder).map(item => (
-                  <li key={item.id || item.name}>
-                    <div
-                      style={{
-                        marginLeft: 16,
-                        marginBottom: 8,
-                        color: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '#2563eb' : '#6b7280',
-                        fontWeight: currentFolderId === item.id && currentSection === 'sharedWithMe' ? 700 : 400,
-                        cursor: 'pointer',
-                        borderLeft: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '2px solid #2563eb' : '2px solid transparent',
-                        paddingLeft: 8,
-                        background: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '#eef3fd' : 'transparent'
-                      }}
-                      onClick={() => {
-                        const sessionId = localStorage.getItem('sessionId');
-                        setCurrentSection('sharedWithMe');
-                        if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
-                          fetchFilesAndFolders(
-                            sessionId,
-                            item.id, // for highlight
-                            item.name,
-                            'sharedWithMe',
-                            item.remoteItem.parentReference.driveId,
-                            item.remoteItem.id
-                          );
-                        } else {
-                          fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
-                        }
-                      }}
-                    >
-                      📁 {item.name}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {renderSidebarFolders(allSharedWithMe.filter(item => item.folder), 'sharedWithMe')}
             </>
           )}
         </nav>
       </aside>
-
       {/* Main Content */}
       <main style={{ flex: 1, padding: '2.5rem 2.5rem 2.5rem 2rem' }}>
         {/* Top Bar */}
@@ -378,17 +343,9 @@ function App() {
           </button>
           <button onClick={handleLogin} style={{ background: '#fff', color: '#2563eb', border: '1px solid #2563eb', fontWeight: 600 }}>Login to Microsoft Account</button>
         </div>
-        {/* Search and Filters */}
-        <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
-          <input type="text" placeholder="Search" style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid #e5e7eb' }} />
-          <button style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '0 16px' }}>Date</button>
-          <button style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '0 16px' }}>Document Type</button>
-        </div>
-
         {/* Main Table */}
         <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', marginBottom: 32, padding: 24 }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>{currentFolderName}</h2>
-          {/* Documents */}
           <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Documents</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -421,7 +378,6 @@ function App() {
             </tbody>
           </table>
 
-          {/* Folders */}
           <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10, marginTop: 32 }}>Folders</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -437,12 +393,14 @@ function App() {
                 <tr key={folder.id} style={{ borderTop: '1px solid #e5e7eb' }}>
                   <td
                     style={{ padding: '8px 0', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}
-                    onClick={() => {
-                      const sessionId = localStorage.getItem('sessionId');
-                      fetchFilesAndFolders(sessionId, folder.id, folder.name, currentSection);
-                    }}
+                    onClick={() => handleFolderClick(folder)}
                   >
-                    {folder.name}
+                    <span
+                      style={{ color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}
+                      onClick={() => handleFolderClick(folder)}
+                    >
+                      {folder.name}
+                    </span>
                   </td>
                   <td>
                     {folder.shared
