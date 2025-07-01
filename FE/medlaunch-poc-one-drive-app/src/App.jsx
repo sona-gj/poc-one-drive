@@ -281,8 +281,31 @@ function App() {
           {allSharedWithMe.length > 0 && (
             <>
               <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared with You</div>
+              {/* All shared items tile */}
+              <div
+                style={{
+                  marginLeft: 16,
+                  marginBottom: 8,
+                  color: currentFolderId === 'all-shared' && currentSection === 'sharedWithMe' ? '#2563eb' : '#6b7280',
+                  fontWeight: currentFolderId === 'all-shared' && currentSection === 'sharedWithMe' ? 700 : 400,
+                  cursor: 'pointer',
+                  borderLeft: currentFolderId === 'all-shared' && currentSection === 'sharedWithMe' ? '2px solid #2563eb' : '2px solid transparent',
+                  paddingLeft: 8,
+                  background: currentFolderId === 'all-shared' && currentSection === 'sharedWithMe' ? '#eef3fd' : 'transparent'
+                }}
+                onClick={() => {
+                  const sessionId = localStorage.getItem('sessionId');
+                  setCurrentSection('sharedWithMe');
+                  setCurrentFolderId('all-shared');
+                  setCurrentFolderName('All Shared Items');
+                  setFiles(allSharedWithMe);
+                }}
+              >
+                📋 All
+              </div>
+              {/* Only folders */}
               <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-                {allSharedWithMe.map(item => (
+                {allSharedWithMe.filter(item => item.folder).map(item => (
                   <li key={item.id || item.name}>
                     <div
                       style={{
@@ -295,71 +318,24 @@ function App() {
                         paddingLeft: 8,
                         background: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '#eef3fd' : 'transparent'
                       }}
-                      onClick={async () => {
+                      onClick={() => {
                         const sessionId = localStorage.getItem('sessionId');
                         setCurrentSection('sharedWithMe');
-                        
-                        if (item.folder) {
-                          // It's a folder, navigate to it
-                          if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
-                            fetchFilesAndFolders(
-                              sessionId,
-                              item.id, // for highlight
-                              item.name,
-                              'sharedWithMe',
-                              item.remoteItem.parentReference.driveId,
-                              item.remoteItem.id
-                            );
-                          } else {
-                            fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
-                          }
+                        if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
+                          fetchFilesAndFolders(
+                            sessionId,
+                            item.id, // for highlight
+                            item.name,
+                            'sharedWithMe',
+                            item.remoteItem.parentReference.driveId,
+                            item.remoteItem.id
+                          );
                         } else {
-                          // It's a file, navigate to its parent folder
-                          try {
-                            let parentUrl;
-                            if (item.remoteItem && item.remoteItem.parentReference) {
-                              parentUrl = `${api}/api/shared/${item.id}/parent?remoteDriveId=${item.remoteItem.parentReference.driveId}&remoteItemId=${item.remoteItem.id}`;
-                            } else {
-                              parentUrl = `${api}/api/shared/${item.id}/parent`;
-                            }
-                            
-                            const parentRes = await axios.get(parentUrl, {
-                              headers: { Authorization: `Bearer ${sessionId}` }
-                            });
-                            
-                            const parentFolder = parentRes.data;
-                            if (parentFolder.remoteItem && parentFolder.remoteItem.parentReference) {
-                              fetchFilesAndFolders(
-                                sessionId,
-                                parentFolder.id, // for highlight
-                                parentFolder.name,
-                                'sharedWithMe',
-                                parentFolder.remoteItem.parentReference.driveId,
-                                parentFolder.remoteItem.id
-                              );
-                            } else {
-                              fetchFilesAndFolders(sessionId, parentFolder.id, parentFolder.name, 'sharedWithMe');
-                            }
-                          } catch (err) {
-                            console.error('Failed to get parent folder:', err);
-                            // Fallback: show the file itself
-                            if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
-                              fetchFilesAndFolders(
-                                sessionId,
-                                item.id, // for highlight
-                                item.name,
-                                'sharedWithMe',
-                                item.remoteItem.parentReference.driveId,
-                                item.remoteItem.id
-                              );
-                            } else {
-                              fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
-                            }
-                          }
+                          fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
                         }
                       }}
                     >
-                      {item.folder ? '📁' : '📄'} {item.name}
+                      📁 {item.name}
                     </div>
                   </li>
                 ))}
@@ -413,7 +389,7 @@ function App() {
         <section style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(16,30,54,0.04)', marginBottom: 32, padding: 24 }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>{currentFolderName}</h2>
           {/* Documents */}
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Recent Documents</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Documents</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
@@ -446,7 +422,7 @@ function App() {
           </table>
 
           {/* Folders */}
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10, marginTop: 32 }}>Recent Folders</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 10, marginTop: 32 }}>Folders</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>
