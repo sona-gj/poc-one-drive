@@ -1,0 +1,103 @@
+.data-table {
+    margin-bottom: 32px;
+}
+
+.data-table h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    margin-top: 32px;
+}
+
+.data-table h3:first-child {
+    margin-top: 0;
+}
+
+.data-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table thead tr {
+    text-align: left;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.data-table th {
+    padding: 8px 0;
+}
+
+.data-table tbody {
+    color: black;
+}
+
+.data-table tbody tr {
+    border-top: 1px solid #e5e7eb;
+}
+
+.data-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+.data-table td {
+    padding: 8px 0;
+}
+
+.clickable-row {
+    cursor: pointer;
+}
+
+.clickable-row:hover {
+    background-color: #f3f4f6;
+}
+
+.actions-cell {
+    text-align: right;
+}
+
+.action-button {
+    margin-left: 8px;
+    padding: 4px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background: #fff;
+    color: #374151;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.action-button:hover {
+    background: #f9fafb;
+}
+
+.action-button.primary {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
+}
+
+.action-button.primary:hover {
+    background: #1d4ed8;
+}
+
+.action-button.danger {
+    background: #dc2626;
+    color: white;
+    border-color: #dc2626;
+}
+
+.action-button.danger:hover {
+    background: #b91c1c;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #6b7280;
+}
+
+.empty-state p {
+    margin: 0;
+    font-size: 16px;
+}
