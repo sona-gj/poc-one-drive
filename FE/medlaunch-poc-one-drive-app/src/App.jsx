@@ -277,13 +277,13 @@ function App() {
           </div>
           {allSharedByYou.length > 0 && (
             <>
-              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared by You</div>
+              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16, color: 'black' }}>Shared by You</div>
               {renderSidebarFolders(allSharedByYou, 'shared')}
             </>
           )}
           {allSharedWithMe.length > 0 && (
             <>
-              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared with You</div>
+              <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16, color: 'black'}}>Shared with You</div>
               <div
                 style={{
                   marginLeft: 16,
@@ -356,7 +356,7 @@ function App() {
                 <th>Web Link</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody style={{color:'black'}}>
               {documents.map(doc => (
                 <tr key={doc.id} style={{ borderTop: '1px solid #e5e7eb' }}>
                   <td style={{ padding: '8px 0' }}>{doc.name}</td>
@@ -388,7 +388,7 @@ function App() {
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody style={{color: 'black'}}>
               {folders.map(folder => (
                 <tr key={folder.id} style={{ borderTop: '1px solid #e5e7eb' }}>
                   <td
