@@ -58,11 +58,11 @@ function App() {
   const [allSharedWithMe, setAllSharedWithMe] = useState([]);
 
   // Fetch files & shared folders
-  const fetchFilesAndFolders = async (sessionId, folderId = null, folderName = 'My File', section = 'root') => {
+  const fetchFilesAndFolders = async (sessionId, folderId = null, folderName = 'My File', section = 'root', remoteDriveId = null, remoteItemId = null) => {
     try {
       let folderMeta = null;
-      if (folderId) {
-        // Fetch folder metadata
+      if (folderId && !remoteDriveId) {
+        // Fetch folder metadata for local folders
         const metaRes = await axios.get(`${api}/api/files?id=${folderId}&meta=1`, {
           headers: { Authorization: `Bearer ${sessionId}` }
         });
@@ -72,9 +72,14 @@ function App() {
         setCurrentFolderMeta(null);
       }
       // Fetch files for given folder (or root if null)
-      const url = folderId
-        ? `${api}/api/files?id=${folderId}`
-        : `${api}/api/files`;
+      let url;
+      if (remoteDriveId && remoteItemId) {
+        url = `${api}/api/files?remoteDriveId=${remoteDriveId}&remoteItemId=${remoteItemId}`;
+      } else if (folderId) {
+        url = `${api}/api/files?id=${folderId}`;
+      } else {
+        url = `${api}/api/files`;
+      }
       const filesRes = await axios.get(url, {
         headers: { Authorization: `Bearer ${sessionId}` }
       });
@@ -106,8 +111,8 @@ function App() {
         const sharedRes = await axios.get(`${api}/api/shared`, {
           headers: { Authorization: `Bearer ${sessionId}` }
         });
+        console.log('Shared with me response:', sharedRes.data);
         const sharedWithMe = (sharedRes.data.value || sharedRes.data || [])
-          .filter(item => item.folder)
           .map(f => ({ ...f, section: 'sharedWithMe' }));
         setAllSharedWithMe(sharedWithMe);
         // Initial main content
@@ -276,17 +281,89 @@ function App() {
           {allSharedWithMe.length > 0 && (
             <>
               <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>Shared with You</div>
-              <SidebarFolders
-                folders={allSharedWithMe}
-                currentFolderId={currentFolderId}
-                currentSection={currentSection}
-                onSelect={(folder) => {
-                  const sessionId = localStorage.getItem('sessionId');
-                  setCurrentSection('sharedWithMe');
-                  fetchFilesAndFolders(sessionId, folder.id, folder.name, 'sharedWithMe');
-                }}
-                section="sharedWithMe"
-              />
+              <ul style={{ listStyle: "none", paddingLeft: 0 }}>
+                {allSharedWithMe.map(item => (
+                  <li key={item.id || item.name}>
+                    <div
+                      style={{
+                        marginLeft: 16,
+                        marginBottom: 8,
+                        color: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '#2563eb' : '#6b7280',
+                        fontWeight: currentFolderId === item.id && currentSection === 'sharedWithMe' ? 700 : 400,
+                        cursor: 'pointer',
+                        borderLeft: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '2px solid #2563eb' : '2px solid transparent',
+                        paddingLeft: 8,
+                        background: currentFolderId === item.id && currentSection === 'sharedWithMe' ? '#eef3fd' : 'transparent'
+                      }}
+                      onClick={async () => {
+                        const sessionId = localStorage.getItem('sessionId');
+                        setCurrentSection('sharedWithMe');
+                        
+                        if (item.folder) {
+                          // It's a folder, navigate to it
+                          if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
+                            fetchFilesAndFolders(
+                              sessionId,
+                              item.id, // for highlight
+                              item.name,
+                              'sharedWithMe',
+                              item.remoteItem.parentReference.driveId,
+                              item.remoteItem.id
+                            );
+                          } else {
+                            fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
+                          }
+                        } else {
+                          // It's a file, navigate to its parent folder
+                          try {
+                            let parentUrl;
+                            if (item.remoteItem && item.remoteItem.parentReference) {
+                              parentUrl = `${api}/api/shared/${item.id}/parent?remoteDriveId=${item.remoteItem.parentReference.driveId}&remoteItemId=${item.remoteItem.id}`;
+                            } else {
+                              parentUrl = `${api}/api/shared/${item.id}/parent`;
+                            }
+                            
+                            const parentRes = await axios.get(parentUrl, {
+                              headers: { Authorization: `Bearer ${sessionId}` }
+                            });
+                            
+                            const parentFolder = parentRes.data;
+                            if (parentFolder.remoteItem && parentFolder.remoteItem.parentReference) {
+                              fetchFilesAndFolders(
+                                sessionId,
+                                parentFolder.id, // for highlight
+                                parentFolder.name,
+                                'sharedWithMe',
+                                parentFolder.remoteItem.parentReference.driveId,
+                                parentFolder.remoteItem.id
+                              );
+                            } else {
+                              fetchFilesAndFolders(sessionId, parentFolder.id, parentFolder.name, 'sharedWithMe');
+                            }
+                          } catch (err) {
+                            console.error('Failed to get parent folder:', err);
+                            // Fallback: show the file itself
+                            if (item.remoteItem && item.remoteItem.parentReference && item.remoteItem.id) {
+                              fetchFilesAndFolders(
+                                sessionId,
+                                item.id, // for highlight
+                                item.name,
+                                'sharedWithMe',
+                                item.remoteItem.parentReference.driveId,
+                                item.remoteItem.id
+                              );
+                            } else {
+                              fetchFilesAndFolders(sessionId, item.id, item.name, 'sharedWithMe');
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      {item.folder ? '📁' : '📄'} {item.name}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </>
           )}
         </nav>

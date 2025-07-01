@@ -171,21 +171,50 @@ app.get("/auth/callback", async (req, res) => {
 // List files and folders in OneDrive (root or given folder)
 app.get("/api/files", requireAuth, async (req, res) => {
   let apiUrl;
-  if (req.query.id) {
+  // Support remote (shared-with-me) folders
+  if (req.query.remoteDriveId && req.query.remoteItemId) {
+    // Check if the item is a file or folder
+    const itemUrl = `https://graph.microsoft.com/v1.0/drives/${req.query.remoteDriveId}/items/${req.query.remoteItemId}`;
+    try {
+      const itemInfo = await graphRequest(req.sessionId, "GET", itemUrl);
+      
+      if (itemInfo.folder) {
+        // It's a folder, get its children
+        apiUrl = `https://graph.microsoft.com/v1.0/drives/${req.query.remoteDriveId}/items/${req.query.remoteItemId}/children`;
+        const result = await graphRequest(req.sessionId, "GET", apiUrl);
+        res.json(result);
+      } else {
+        // It's a file, return the file info wrapped in a value array
+        res.json({ value: [itemInfo] });
+      }
+    } catch (err) {
+      res.status(err.status || 500).json(err.data || { error: "Unknown error" });
+    }
+  } else if (req.query.id) {
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${req.query.id}/children`;
+    try {
+      const result = await graphRequest(req.sessionId, "GET", apiUrl);
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json(err.data || { error: "Unknown error" });
+    }
   } else if (req.query.path) {
     const path = req.query.path;
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(path)}:/children`;
+    try {
+      const result = await graphRequest(req.sessionId, "GET", apiUrl);
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json(err.data || { error: "Unknown error" });
+    }
   } else {
     apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root/children`;
-  }
-  try {
-    7;
-
-    const result = await graphRequest(req.sessionId, "GET", apiUrl);
-    res.json(result);
-  } catch (err) {
-    res.status(err.status || 500).json(err.data || { error: "Unknownerror" });
+    try {
+      const result = await graphRequest(req.sessionId, "GET", apiUrl);
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json(err.data || { error: "Unknown error" });
+    }
   }
 });
 // List files shared *with* the logged-in user
@@ -195,7 +224,27 @@ app.get("/api/shared", requireAuth, async (req, res) => {
     const result = await graphRequest(req.sessionId, "GET", apiUrl);
     res.json(result);
   } catch (err) {
-    res.status(err.status || 500).json(err.data || { error: "Unknownerror" });
+    res.status(err.status || 500).json(err.data || { error: "Unknown error" });
+  }
+});
+
+// Get parent folder of a shared item
+app.get("/api/shared/:itemId/parent", requireAuth, async (req, res) => {
+  const { itemId } = req.params;
+  const { remoteDriveId, remoteItemId } = req.query;
+  
+  let apiUrl;
+  if (remoteDriveId && remoteItemId) {
+    apiUrl = `https://graph.microsoft.com/v1.0/drives/${remoteDriveId}/items/${remoteItemId}/parent`;
+  } else {
+    apiUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/parent`;
+  }
+  
+  try {
+    const result = await graphRequest(req.sessionId, "GET", apiUrl);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json(err.data || { error: "Unknown error" });
   }
 });
 // Create a new folder
